@@ -1,0 +1,32 @@
+[project]
+name = "fastapi-monitor"
+version = "0.1.0"
+requires-python = ">=3.13"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Testes async rodam sem precisar marcar cada um com @pytest.mark.asyncio.
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 79
+target-version = "py313"
+# Migrações são geradas pelo Alembic; o estilo delas é o dele.
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+# A pasta alembic/ do projeto confunde o ruff, que acharia que o pacote
+# alembic é código nosso.
+known-third-party = ["alembic"]
