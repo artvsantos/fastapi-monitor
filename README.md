@@ -10,6 +10,10 @@ checagem. Um worker checa cada site sozinho, guarda o status e o tempo de
 resposta, e avisa por webhook quando o site cai ou volta. A API mostra o
 histórico e a porcentagem de tempo no ar.
 
+**Demo:** https://fastapi-monitor.onrender.com/docs. Está no plano
+grátis, então a primeira visita depois de um tempo parada pode levar
+cerca de um minuto.
+
 ## O que ela faz
 
 - Cadastro e login com JWT.

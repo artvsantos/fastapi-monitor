@@ -12,6 +12,9 @@ the uptime percentage.
 
 The API itself (messages, docs) is in Portuguese; the code is in English.
 
+**Demo:** https://fastapi-monitor.onrender.com/docs. It runs on a free
+plan, so the first visit after a while idle can take about a minute.
+
 ## Features
 
 - Sign-up and login with JWT.
