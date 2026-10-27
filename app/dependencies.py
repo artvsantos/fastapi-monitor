@@ -7,6 +7,7 @@ from app import security
 from app.config import Settings
 from app.database import SessionDep
 from app.models import User
+from app.url_safety import Resolver
 
 
 def get_settings(request: Request) -> Settings:
@@ -14,6 +15,13 @@ def get_settings(request: Request) -> Settings:
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+
+def get_resolver(request: Request) -> Resolver:
+    return request.app.state.resolver
+
+
+ResolverDep = Annotated[Resolver, Depends(get_resolver)]
 
 # auto_error=False: sem token, o FastAPI responderia "Not authenticated",
 # em inglês. Assim a mensagem é nossa.

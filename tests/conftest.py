@@ -1,12 +1,25 @@
 import httpx
 import pytest
+from pwdlib import PasswordHash
+from pwdlib.hashers.argon2 import Argon2Hasher
 
+from app import security
 from app.config import Settings
 from app.database import Base
 from app.main import create_app
+from app.url_safety import UnsafeURLError
 
 EMAIL = 'ana@exemplo.com'
 PASSWORD = 'senha-forte-123'
+
+
+@pytest.fixture(autouse=True)
+def fast_password_hash(monkeypatch):
+    # O argon2 de verdade leva ~50 ms por senha, de propósito. Nos testes,
+    # que criam contas o tempo todo, usa o mesmo algoritmo bem mais leve.
+    monkeypatch.setattr(security, 'password_hash', PasswordHash((
+        Argon2Hasher(time_cost=1, memory_cost=8, parallelism=1),
+    )))
 
 
 @pytest.fixture
@@ -19,8 +32,23 @@ def settings():
 
 
 @pytest.fixture
-async def app(settings):
-    app = create_app(settings)
+def dns():
+    # DNS de mentira: os testes não dependem da internet. Cada teste pode
+    # acrescentar nomes neste dicionário.
+    return {
+        'exemplo.com.br': ['93.184.216.34'],
+        'outro-site.com': ['151.101.1.69', '2a04:4e42::261'],
+    }
+
+
+@pytest.fixture
+async def app(settings, dns):
+    async def fake_resolver(host):
+        if host not in dns:
+            raise UnsafeURLError('url_not_found')
+        return dns[host]
+
+    app = create_app(settings, resolver=fake_resolver)
     async with app.state.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield app

@@ -30,7 +30,7 @@ def table_names(config):
 def test_migrations_create_the_tables(alembic_config):
     command.upgrade(alembic_config, 'head')
 
-    assert table_names(alembic_config) == {'users'}
+    assert table_names(alembic_config) == {'users', 'monitors'}
 
 
 def test_migrations_match_the_models(alembic_config):

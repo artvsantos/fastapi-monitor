@@ -4,7 +4,8 @@ from fastapi.exceptions import RequestValidationError
 from app.config import Settings
 from app.database import make_engine, make_sessionmaker
 from app.errors import validation_error_handler
-from app.routers import auth
+from app.routers import auth, monitors
+from app.url_safety import Resolver, resolve_host
 
 DESCRIPTION = """
 Cadastre os sites que quer acompanhar. A API checa cada um no intervalo
@@ -13,7 +14,9 @@ porcentagem de tempo no ar.
 """
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, resolver: Resolver = resolve_host,
+) -> FastAPI:
     settings = settings or Settings()
 
     app = FastAPI(
@@ -26,9 +29,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.engine = make_engine(settings.database_url)
     app.state.sessionmaker = make_sessionmaker(app.state.engine)
+    # Trocável nos testes, que usam um DNS de mentira.
+    app.state.resolver = resolver
 
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.include_router(auth.router)
+    app.include_router(monitors.router)
 
     @app.get(
         '/health', summary='Verifica se a API está no ar', tags=['Sistema'],
