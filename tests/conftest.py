@@ -9,8 +9,9 @@ from app import security
 from app.config import Settings
 from app.database import Base, utc_now
 from app.main import create_app
-from app.models import Check
+from app.models import Check, Monitor, User
 from app.url_safety import UnsafeURLError
+from tests.helpers import NOW
 
 EMAIL = 'ana@exemplo.com'
 PASSWORD = 'senha-forte-123'
@@ -114,6 +115,33 @@ async def monitor(client, auth_headers):
         'interval_minutes': 5,
     }, headers=auth_headers)
     return response.json()
+
+
+@pytest.fixture
+async def owner(session):
+    """Dono criado direto no banco, para os testes do worker."""
+    user = User(email='dono@exemplo.com', hashed_password='x')
+    session.add(user)
+    await session.commit()
+    return user
+
+
+@pytest.fixture
+def make_monitor(session, owner):
+    """Monitor gravado direto no banco, vencido em relação ao NOW."""
+
+    async def make(url='https://exemplo.com.br/', **kwargs):
+        data = {
+            'name': 'Site', 'interval_minutes': 5,
+            'next_check_at': NOW - timedelta(minutes=1),
+        }
+        data.update(kwargs)
+        monitor = Monitor(owner_id=owner.id, url=url, **data)
+        session.add(monitor)
+        await session.commit()
+        return monitor
+
+    return make
 
 
 @pytest.fixture

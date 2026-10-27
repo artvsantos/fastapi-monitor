@@ -51,7 +51,7 @@ async def check_url(
         ) as response:
             elapsed_ms = round((clock() - start) * 1000)
     except httpx.TimeoutException:
-        return _down(f'O site não respondeu em {_seconds(timeout)}.')
+        return _down(f'O site não respondeu em {format_seconds(timeout)}.')
     except httpx.ConnectError as error:
         # O filtro de endereços explica por que não conectou; o resto vira
         # a mensagem genérica (o texto do erro de rede vem em inglês).
@@ -77,7 +77,7 @@ def _down(error: str) -> CheckResult:
     )
 
 
-def _seconds(value: float) -> str:
+def format_seconds(value: float) -> str:
     unit = 'segundo' if value == 1 else 'segundos'
     return f'{value:g} {unit}'
 

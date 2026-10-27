@@ -1,47 +1,13 @@
 import asyncio
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 import httpx
-import pytest
 from sqlalchemy import func, select
 
 from app import worker
-from app.models import Check, Monitor, User
-
-NOW = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
-
-
-@pytest.fixture
-async def owner(session):
-    user = User(email='ana@exemplo.com', hashed_password='x')
-    session.add(user)
-    await session.commit()
-    return user
-
-
-@pytest.fixture
-def make_monitor(session, owner):
-    async def make(url='https://exemplo.com.br/', **kwargs):
-        data = {
-            'name': 'Site', 'interval_minutes': 5,
-            'next_check_at': NOW - timedelta(minutes=1),
-        }
-        data.update(kwargs)
-        monitor = Monitor(owner_id=owner.id, url=url, **data)
-        session.add(monitor)
-        await session.commit()
-        return monitor
-
-    return make
-
-
-def client_for(handler):
-    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
-
-
-def always(status_code):
-    return client_for(lambda request: httpx.Response(status_code))
+from app.models import Check, Monitor
+from tests.helpers import NOW, always, client_for
 
 
 async def run(app, client, now=NOW):

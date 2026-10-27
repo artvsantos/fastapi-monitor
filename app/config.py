@@ -27,3 +27,6 @@ class Settings(BaseSettings):
     check_timeout: float = 10            # segundos por checagem
     # Checagens mais velhas que isso são apagadas (uma vez por hora).
     check_retention_days: int = 30
+    # Tentativas de entregar um aviso ao webhook antes de desistir (a
+    # espera dobra a cada uma: 1, 2, 4, 8 minutos...).
+    webhook_max_attempts: int = 5

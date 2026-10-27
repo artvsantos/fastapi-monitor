@@ -16,6 +16,7 @@ MESSAGES = {
     'url_not_found': (
         'Não encontrei esse endereço. Confira se a URL está certa.'
     ),
+    'webhook_internal': 'O aviso não pode ir para um endereço interno.',
 }
 
 Resolver = Callable[[str], Awaitable[list[str]]]

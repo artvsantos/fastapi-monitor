@@ -1,4 +1,4 @@
-"""Worker: checa os sites no intervalo de cada um.
+"""Worker: checa os sites no intervalo de cada um e envia os avisos.
 
 Roda como processo próprio (python -m app.worker) ou dentro da API, com
 RUN_WORKER_IN_API=1. A fila é a própria tabela de monitores: cada rodada
@@ -12,16 +12,20 @@ from datetime import datetime, timedelta
 
 import httpx
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.alerts import event_for, send_due_alerts
 from app.checker import CheckResult, check_url, make_check_client
 from app.config import Settings
-from app.database import make_engine, make_sessionmaker, utc_now
-from app.models import Check, Monitor
+from app.database import (
+    Sessionmaker,
+    make_engine,
+    make_sessionmaker,
+    utc_now,
+)
+from app.models import Alert, Check, Monitor
 
 logger = logging.getLogger(__name__)
-
-Sessionmaker = async_sessionmaker[AsyncSession]
 
 
 async def claim_due_monitors(
@@ -62,14 +66,24 @@ async def save_result(
         # não vale para o que está cadastrado agora.
         if monitor is None or monitor.url != url:
             return
-        session.add(Check(
+        check = Check(
             monitor_id=monitor_id,
             checked_at=checked_at,
             is_up=result.is_up,
             status_code=result.status_code,
             response_time_ms=result.response_time_ms,
             error=result.error,
-        ))
+        )
+        session.add(check)
+        # Só a mudança de status gera aviso: fora do ar por dez checagens
+        # seguidas é um aviso só. Vai na mesma transação da checagem.
+        event = event_for(monitor.is_up, result.is_up)
+        if event and monitor.webhook_url:
+            await session.flush()  # para o check ganhar o id
+            session.add(Alert(
+                monitor_id=monitor_id, check_id=check.id, event=event,
+                next_attempt_at=checked_at,
+            ))
         monitor.is_up = result.is_up
         monitor.last_checked_at = checked_at
         await session.commit()
@@ -142,6 +156,8 @@ async def run_forever(
         now = clock()
         try:
             await run_once(sessionmaker, client, settings)
+            # Logo depois da rodada: os avisos dela já saem agora.
+            await send_due_alerts(sessionmaker, client, settings)
             # A limpeza não precisa ser a cada rodada; uma vez por hora
             # basta (e a primeira logo ao ligar).
             if last_cleanup is None or now - last_cleanup >= CLEANUP_EVERY:

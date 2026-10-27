@@ -30,7 +30,9 @@ def table_names(config):
 def test_migrations_create_the_tables(alembic_config):
     command.upgrade(alembic_config, 'head')
 
-    assert table_names(alembic_config) == {'users', 'monitors', 'checks'}
+    assert table_names(alembic_config) == {
+        'users', 'monitors', 'checks', 'alerts',
+    }
 
 
 def test_migrations_match_the_models(alembic_config):
@@ -74,3 +76,33 @@ def test_monitors_that_already_existed_get_scheduled(alembic_config):
     engine.dispose()
     assert row.next_check_at is not None
     assert row.is_up is None
+
+
+def test_monitors_that_already_existed_get_their_own_secret(alembic_config):
+    # O segredo da assinatura é obrigatório; quem já tinha monitor ganha um
+    # diferente para cada, e não um valor fixo igual para todos.
+    command.upgrade(alembic_config, 'c10d8ce69ede')
+    engine = sa.create_engine(
+        f"sqlite:///{alembic_config.attributes['database_file']}",
+    )
+    with engine.begin() as conn:
+        conn.execute(sa.text(
+            "INSERT INTO users (email, hashed_password, created_at) "
+            "VALUES ('ana@exemplo.com', 'x', '2026-10-01 00:00:00')",
+        ))
+        for url in ('https://a.com/', 'https://b.com/'):
+            conn.execute(sa.text(
+                "INSERT INTO monitors (owner_id, name, url, interval_minutes,"
+                " is_active, created_at, next_check_at) VALUES (1, 'Site', "
+                ":url, 5, 1, '2026-10-01 00:00:00', '2026-10-01 00:00:00')",
+            ), {'url': url})
+
+    command.upgrade(alembic_config, 'head')
+
+    with engine.connect() as conn:
+        secrets = conn.execute(sa.text(
+            'SELECT webhook_secret FROM monitors',
+        )).scalars().all()
+    engine.dispose()
+    assert len(set(secrets)) == 2
+    assert all(len(secret) >= 32 for secret in secrets)

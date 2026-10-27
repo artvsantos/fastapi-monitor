@@ -5,13 +5,13 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import AwareDatetime
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.database import SessionDep, utc_now
 from app.dependencies import CurrentUser, ResolverDep, SettingsDep
 from app.errors import field_error
-from app.models import Check, Monitor
+from app.models import Alert, Check, Monitor
 from app.schemas import (
     CheckPage,
     MonitorCreate,
@@ -20,7 +20,7 @@ from app.schemas import (
     MonitorUpdate,
     Period,
 )
-from app.url_safety import UnsafeURLError, ensure_public_host
+from app.url_safety import MESSAGES, UnsafeURLError, ensure_public_host
 
 router = APIRouter(prefix='/monitors', tags=['Monitores'])
 
@@ -28,11 +28,14 @@ NOT_FOUND = {404: {'description': 'Monitor não encontrado.'}}
 DUPLICATE = 'Você já monitora esta URL.'
 
 
-async def check_url_is_public(url: str, resolve) -> None:
+async def check_url_is_public(url: str, resolve, field: str = 'url') -> None:
     try:
         await ensure_public_host(urlsplit(url).hostname, resolve)
     except UnsafeURLError as error:
-        raise field_error('url', error.kind, error.message) from None
+        kind = error.kind
+        if field == 'webhook_url' and kind == 'url_internal':
+            kind = 'webhook_internal'
+        raise field_error(field, kind, MESSAGES[kind]) from None
 
 
 async def get_own_monitor(
@@ -70,7 +73,8 @@ async def save(session: SessionDep, monitor: Monitor) -> Monitor:
     description=(
         'Endereços da rede interna (localhost, 10.x, 192.168.x, '
         '169.254.x...) são recusados, inclusive domínios que apontam '
-        'para eles.'
+        'para eles. Vale também para o `webhook_url`, que recebe um POST '
+        'assinado quando o site cai ou volta.'
     ),
     responses={409: {'description': f'{DUPLICATE} Ou: limite atingido.'}},
 )
@@ -82,6 +86,8 @@ async def create_monitor(
     resolve: ResolverDep,
 ):
     await check_url_is_public(data.url, resolve)
+    if data.webhook_url:
+        await check_url_is_public(data.webhook_url, resolve, 'webhook_url')
 
     # Dois cadastros ao mesmo tempo podem passar um do limite; para um
     # limite de uso justo, tudo bem.
@@ -138,6 +144,20 @@ async def update_monitor(
     reactivated = changes.get('is_active') and not monitor.is_active
     if url_changed:
         await check_url_is_public(changes['url'], resolve)
+    new_webhook = changes.get('webhook_url')
+    if new_webhook and new_webhook != monitor.webhook_url:
+        await check_url_is_public(new_webhook, resolve, 'webhook_url')
+
+    if url_changed:
+        # Os avisos ainda não enviados eram do endereço antigo. Vem antes
+        # das mudanças no monitor: depois, este execute já gravaria a URL
+        # nova, e uma URL repetida estouraria fora do save(). Se ela for
+        # repetida, o rollback do save() desfaz o cancelamento também.
+        await session.execute(
+            update(Alert)
+            .where(Alert.monitor_id == monitor.id, Alert.status == 'pending')
+            .values(status='cancelled'),
+        )
 
     for field, value in changes.items():
         setattr(monitor, field, value)

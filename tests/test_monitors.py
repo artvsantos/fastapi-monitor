@@ -52,7 +52,7 @@ async def test_creates_monitor(client, auth_headers):
     assert response.status_code == 201
     assert set(body) == {
         'id', 'name', 'url', 'interval_minutes', 'is_active', 'created_at',
-        'is_up', 'last_checked_at',
+        'is_up', 'last_checked_at', 'webhook_url', 'webhook_secret',
     }
     assert body['name'] == 'Meu site'
     assert body['url'] == SITE

@@ -41,7 +41,7 @@ def test_our_error_names_do_not_clash_with_pydantic_ones():
     # Se o nome coincidir, a mensagem em português vira "Valor inválido.".
     ours = {
         'invalid_email', 'url_not_http', 'url_invalid', 'url_credentials',
-        'url_internal',
+        'url_internal', 'webhook_internal',
     }
 
     assert not ours & PYDANTIC_ERROR_TYPES

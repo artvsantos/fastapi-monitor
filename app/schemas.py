@@ -73,10 +73,34 @@ def normalize_url(value: str) -> str:
     return f'{url}?{parts.query}' if parts.query else url
 
 
+def normalize_webhook_url(value: str) -> str:
+    # Mesmas regras da URL do site; só a mensagem do endereço interno
+    # muda, porque "não podem ser monitorados" não faz sentido aqui.
+    try:
+        return normalize_url(value)
+    except PydanticCustomError as error:
+        if error.type == 'url_internal':
+            raise _url_error(
+                'webhook_internal', MESSAGES['webhook_internal'],
+            ) from None
+        raise
+
+
 Url = Annotated[
     str,
     Field(max_length=2048, examples=['https://exemplo.com.br/']),
     AfterValidator(normalize_url),
+]
+WebhookUrl = Annotated[
+    str,
+    Field(
+        max_length=2048,
+        description=(
+            'Recebe um POST em JSON quando o site cai ou volta. Opcional.'
+        ),
+        examples=['https://meu-servidor.com.br/avisos'],
+    ),
+    AfterValidator(normalize_webhook_url),
 ]
 Name = Annotated[
     str,
@@ -94,6 +118,7 @@ class MonitorCreate(BaseModel):
     url: Url
     interval_minutes: Interval = 5
     is_active: bool = True
+    webhook_url: WebhookUrl | None = None
 
 
 class MonitorUpdate(BaseModel):
@@ -103,6 +128,8 @@ class MonitorUpdate(BaseModel):
     url: Url = None
     interval_minutes: Interval = None
     is_active: bool = None
+    # Este aceita null: é como se remove o webhook.
+    webhook_url: WebhookUrl | None = None
 
 
 class MonitorOut(BaseModel):
@@ -118,6 +145,13 @@ class MonitorOut(BaseModel):
         description='Resultado da última checagem. null: ainda não checado.',
     )
     last_checked_at: datetime | None
+    webhook_url: str | None
+    webhook_secret: str = Field(
+        description=(
+            'Para conferir a assinatura dos avisos (cabeçalho '
+            'X-Monitor-Signature).'
+        ),
+    )
 
 
 class CheckOut(BaseModel):
