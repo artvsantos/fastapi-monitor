@@ -47,10 +47,14 @@ def fake_resolver(table):
     return resolve
 
 
-async def test_host_resolving_to_public_addresses_passes():
-    resolve = fake_resolver({'exemplo.com.br': ['93.184.216.34']})
+async def test_host_resolving_to_public_addresses_returns_them():
+    resolve = fake_resolver({
+        'exemplo.com.br': ['93.184.216.34', '2606:2800:21f:cb07::1'],
+    })
 
-    await ensure_public_host('exemplo.com.br', resolve)
+    addresses = await ensure_public_host('exemplo.com.br', resolve)
+
+    assert addresses == ['93.184.216.34', '2606:2800:21f:cb07::1']
 
 
 async def test_public_ip_in_the_url_does_not_need_dns():

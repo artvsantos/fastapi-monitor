@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
-from app.database import SessionDep
+from app.database import SessionDep, utc_now
 from app.dependencies import CurrentUser, ResolverDep, SettingsDep
 from app.errors import field_error
 from app.models import Monitor
@@ -123,11 +123,19 @@ async def update_monitor(
 ):
     monitor = await get_own_monitor(session, user, monitor_id)
     changes = data.model_dump(exclude_unset=True)
-    if 'url' in changes:
+    url_changed = changes.get('url', monitor.url) != monitor.url
+    reactivated = changes.get('is_active') and not monitor.is_active
+    if url_changed:
         await check_url_is_public(changes['url'], resolve)
 
     for field, value in changes.items():
         setattr(monitor, field, value)
+    if url_changed:
+        # O status era do endereço antigo.
+        monitor.is_up = None
+        monitor.last_checked_at = None
+    if url_changed or reactivated:
+        monitor.next_check_at = utc_now()
     return await save(session, monitor)
 
 

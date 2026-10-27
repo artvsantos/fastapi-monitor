@@ -1,6 +1,12 @@
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 
+from app import worker
+from app.checker import make_check_client
 from app.config import Settings
 from app.database import make_engine, make_sessionmaker
 from app.errors import validation_error_handler
@@ -14,6 +20,26 @@ porcentagem de tempo no ar.
 """
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    state = app.state
+    if not state.settings.run_worker_in_api:
+        yield
+        await state.engine.dispose()
+        return
+
+    stop = asyncio.Event()
+    async with make_check_client(state.resolver) as client:
+        task = asyncio.create_task(worker.run_forever(
+            state.sessionmaker, client, state.settings, stop,
+        ))
+        yield
+        # Ao desligar a API, o worker termina a rodada e para.
+        stop.set()
+        await task
+    await state.engine.dispose()
+
+
 def create_app(
     settings: Settings | None = None, resolver: Resolver = resolve_host,
 ) -> FastAPI:
@@ -23,6 +49,7 @@ def create_app(
         title='Monitor de Sites',
         description=DESCRIPTION,
         version='0.1.0',
+        lifespan=lifespan,
     )
     # Cada app tem o próprio banco: os testes criam um em memória sem
     # mexer no de verdade.

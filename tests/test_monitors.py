@@ -1,4 +1,9 @@
+from datetime import timedelta
+
 import pytest
+
+from app.database import utc_now
+from app.models import Monitor
 
 URL = '/monitors'
 SITE = 'https://exemplo.com.br/'
@@ -63,11 +68,26 @@ async def test_creates_monitor(client, auth_headers):
     assert response.status_code == 201
     assert set(body) == {
         'id', 'name', 'url', 'interval_minutes', 'is_active', 'created_at',
+        'is_up', 'last_checked_at',
     }
     assert body['name'] == 'Meu site'
     assert body['url'] == SITE
     assert body['interval_minutes'] == 5
     assert body['is_active'] is True
+    # Ainda não foi checado: nem no ar, nem fora.
+    assert body['is_up'] is None
+    assert body['last_checked_at'] is None
+
+
+async def test_new_monitor_is_checked_right_away(
+    client, auth_headers, session,
+):
+    before = utc_now()
+    response = await client.post(URL, json=payload(), headers=auth_headers)
+
+    saved = await session.get(Monitor, response.json()['id'])
+
+    assert before <= saved.next_check_at <= utc_now()
 
 
 async def test_interval_defaults_to_5_minutes(client, auth_headers):
@@ -339,6 +359,73 @@ async def test_patch_to_an_url_already_monitored_returns_409(
 
     assert response.status_code == 409
     assert response.json() == {'detail': 'Você já monitora esta URL.'}
+
+
+async def set_checked(session, monitor_id, **values):
+    saved = await session.get(Monitor, monitor_id)
+    for field, value in values.items():
+        setattr(saved, field, value)
+    await session.commit()
+
+
+async def test_changing_the_url_starts_over(
+    client, auth_headers, monitor, session,
+):
+    # O status era do endereço antigo; o novo é checado logo.
+    tomorrow = utc_now() + timedelta(days=1)
+    await set_checked(
+        session, monitor['id'], is_up=False, last_checked_at=utc_now(),
+        next_check_at=tomorrow,
+    )
+
+    response = await client.patch(
+        f"{URL}/{monitor['id']}", json={'url': 'https://outro-site.com/'},
+        headers=auth_headers,
+    )
+    session.expire_all()
+    saved = await session.get(Monitor, monitor['id'])
+
+    assert response.json()['is_up'] is None
+    assert response.json()['last_checked_at'] is None
+    assert saved.next_check_at < tomorrow
+
+
+async def test_reactivating_checks_right_away(
+    client, auth_headers, monitor, session,
+):
+    tomorrow = utc_now() + timedelta(days=1)
+    await set_checked(
+        session, monitor['id'], is_active=False, next_check_at=tomorrow,
+    )
+
+    await client.patch(
+        f"{URL}/{monitor['id']}", json={'is_active': True},
+        headers=auth_headers,
+    )
+    session.expire_all()
+    saved = await session.get(Monitor, monitor['id'])
+
+    assert saved.next_check_at < tomorrow
+
+
+async def test_other_changes_keep_the_schedule(
+    client, auth_headers, monitor, session,
+):
+    tomorrow = utc_now() + timedelta(days=1)
+    await set_checked(
+        session, monitor['id'], is_up=True, next_check_at=tomorrow,
+    )
+
+    response = await client.patch(
+        f"{URL}/{monitor['id']}",
+        json={'name': 'Novo nome', 'is_active': True},
+        headers=auth_headers,
+    )
+    session.expire_all()
+    saved = await session.get(Monitor, monitor['id'])
+
+    assert response.json()['is_up'] is True
+    assert saved.next_check_at == tomorrow
 
 
 @pytest.mark.parametrize('field', ['name', 'url', 'interval_minutes'])

@@ -114,6 +114,10 @@ class MonitorOut(BaseModel):
     interval_minutes: int
     is_active: bool
     created_at: datetime
+    is_up: bool | None = Field(
+        description='Resultado da última checagem. null: ainda não checado.',
+    )
+    last_checked_at: datetime | None
 
 
 class UserCreate(BaseModel):

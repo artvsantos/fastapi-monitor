@@ -62,8 +62,9 @@ async def resolve_host(host: str) -> list[str]:
 
 async def ensure_public_host(
     host: str, resolve: Resolver = resolve_host,
-) -> None:
-    """Levanta UnsafeURLError se o host for (ou apontar para) a rede interna.
+) -> list[str]:
+    """Devolve os endereços do host, todos públicos, ou levanta
+    UnsafeURLError se o host for (ou apontar para) a rede interna.
 
     Um domínio público pode apontar para 10.0.0.7, então o nome não basta:
     vale o endereço que o DNS devolve. Basta um interno para bloquear.
@@ -71,3 +72,4 @@ async def ensure_public_host(
     addresses = [host] if is_ip(host) else await resolve(host)
     if not all(is_public_address(address) for address in addresses):
         raise UnsafeURLError('url_internal')
+    return addresses

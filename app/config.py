@@ -16,3 +16,12 @@ class Settings(BaseSettings):
     # Cada monitor gera uma checagem por minuto no pior caso. O limite
     # impede uma conta só de ocupar o worker inteiro.
     max_monitors_per_user: int = 20
+
+    # Worker
+    # Liga o worker dentro do processo da API (para hospedagem que não
+    # roda um processo separado, como o Render grátis).
+    run_worker_in_api: bool = False
+    worker_interval_seconds: float = 10  # pausa entre uma rodada e outra
+    worker_batch_size: int = 50          # monitores por rodada
+    worker_concurrency: int = 10         # checagens ao mesmo tempo
+    check_timeout: float = 10            # segundos por checagem
