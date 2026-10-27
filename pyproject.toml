@@ -16,6 +16,8 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
+# O CI falha se algum trecho novo ficar sem teste.
+fail_under = 100
 
 [tool.ruff]
 line-length = 79

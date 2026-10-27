@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import RedirectResponse
 
 from app import worker
 from app.checker import make_check_client
@@ -62,6 +63,10 @@ def create_app(
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.include_router(auth.router)
     app.include_router(monitors.router)
+
+    @app.get('/', include_in_schema=False)
+    async def home():
+        return RedirectResponse('/docs')
 
     @app.get(
         '/health', summary='Verifica se a API está no ar', tags=['Sistema'],

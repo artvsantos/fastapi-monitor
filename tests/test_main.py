@@ -27,6 +27,14 @@ async def test_health_is_listed_in_portuguese_in_the_docs(client):
     assert paths['/health']['get']['tags'] == ['Sistema']
 
 
+async def test_home_page_opens_the_docs(client):
+    # Quem abre o endereço do deploy cai direto na documentação.
+    response = await client.get('/')
+
+    assert response.status_code == 307
+    assert response.headers['location'] == '/docs'
+
+
 async def test_unknown_route_returns_404(client):
     response = await client.get('/nao-existe')
 

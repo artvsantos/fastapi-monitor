@@ -1,0 +1,20 @@
+# Deploy no Render (New > Blueprint, apontando para este repositório).
+# O banco fica no Neon: crie o projeto na região AWS US East (N. Virginia),
+# perto desta, e cole a connection string em DATABASE_URL.
+services:
+  - type: web
+    name: fastapi-monitor
+    runtime: docker
+    plan: free
+    region: virginia
+    healthCheckPath: /health
+    # Só publica o commit novo depois que o CI passar.
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: DATABASE_URL
+        sync: false  # o Render pede o valor no painel; não fica no repo
+      - key: SECRET_KEY
+        generateValue: true  # gerada pelo Render (256 bits)
+      # O plano grátis não tem worker separado: ele roda dentro da API.
+      - key: RUN_WORKER_IN_API
+        value: "1"

@@ -1,3 +1,4 @@
+import os
 from datetime import timedelta
 
 import httpx
@@ -28,9 +29,14 @@ def fast_password_hash(monkeypatch):
 
 @pytest.fixture
 def settings():
-    # Banco em memória: cada teste começa vazio e nada fica no disco.
+    # Banco em memória: cada teste começa vazio e nada fica no disco. No
+    # CI, TEST_DATABASE_URL roda os mesmos testes também no Postgres, o
+    # banco de produção (SKIP LOCKED, LAG e os tipos se comportam lá).
     return Settings(
-        database_url='sqlite+aiosqlite://',
+        _env_file=None,
+        database_url=os.environ.get(
+            'TEST_DATABASE_URL', 'sqlite+aiosqlite://',
+        ),
         secret_key='chave-so-para-os-testes-com-mais-de-32-bytes',
     )
 
@@ -54,6 +60,9 @@ async def app(settings, dns):
 
     app = create_app(settings, resolver=fake_resolver)
     async with app.state.engine.begin() as conn:
+        # No Postgres o banco não some entre um teste e outro: apaga o que
+        # o teste anterior deixou.
+        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield app
     await app.state.engine.dispose()

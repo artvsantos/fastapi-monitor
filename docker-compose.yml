@@ -1,0 +1,48 @@
+# Sobe tudo no PC: docker compose up --build
+# API em http://localhost:8000/docs
+
+x-app: &app
+  build: .
+  environment:
+    DATABASE_URL: postgresql+asyncpg://monitor:monitor@postgres:5432/monitor
+    # Chave só para rodar localmente. Em produção, use uma gerada na hora.
+    SECRET_KEY: ${SECRET_KEY:-chave-local-do-docker-compose-troque-em-producao}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: monitor
+      POSTGRES_PASSWORD: monitor
+      POSTGRES_DB: monitor
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U monitor"]
+      interval: 2s
+      retries: 15
+
+  api:
+    <<: *app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # A imagem slim não tem curl; o Python faz a requisição.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 3s
+      retries: 20
+
+  # Processo próprio para o worker. Só sobe depois da API, que é quem
+  # roda as migrações.
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
