@@ -20,22 +20,6 @@ def url_message(response):
     return {e['loc'][-1]: e['msg'] for e in response.json()['detail']}['url']
 
 
-@pytest.fixture
-async def other_headers(client):
-    login = {'username': 'bruno@exemplo.com', 'password': 'outra-senha-123'}
-    await client.post('/auth/register', json={
-        'email': login['username'], 'password': login['password'],
-    })
-    token = (await client.post('/auth/token', data=login)).json()
-    return {'Authorization': f"Bearer {token['access_token']}"}
-
-
-@pytest.fixture
-async def monitor(client, auth_headers):
-    response = await client.post(URL, json=payload(), headers=auth_headers)
-    return response.json()
-
-
 # --- acesso ---------------------------------------------------------------
 
 @pytest.mark.parametrize('method, path', [

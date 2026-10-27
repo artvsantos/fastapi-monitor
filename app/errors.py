@@ -21,6 +21,12 @@ MESSAGES = {
     'json_invalid': 'O corpo da requisição não é um JSON válido.',
     'model_attributes_type': 'Envie um objeto JSON.',
     'dict_type': 'Envie um objeto JSON.',
+    'datetime_type': 'Informe uma data e hora válida.',
+    'datetime_parsing': 'Informe uma data e hora válida.',
+    'datetime_from_date_parsing': 'Informe uma data e hora válida.',
+    'timezone_aware': (
+        'Informe a data com fuso horário, como 2026-10-27T12:00:00Z.'
+    ),
 }
 GENERIC_MESSAGE = 'Valor inválido.'
 
@@ -31,6 +37,11 @@ def translate_error(error: dict[str, Any]) -> dict[str, Any]:
     kind = error['type']
     if kind == 'string_too_short' and error['ctx']['min_length'] == 1:
         message = 'Este campo não pode ficar vazio.'
+    elif kind == 'literal_error':
+        # O Pydantic lista as opções como "'24h', '7d' or '30d'".
+        expected = error['ctx']['expected']
+        options = expected.replace("'", '').replace(' or ', ' ou ')
+        message = f'Escolha uma das opções: {options}.'
     elif kind in MESSAGES:
         message = MESSAGES[kind].format(**error.get('ctx', {}))
     elif kind in PYDANTIC_ERROR_TYPES:

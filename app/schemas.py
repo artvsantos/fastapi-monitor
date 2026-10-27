@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from email_validator import EmailNotValidError, validate_email
@@ -118,6 +118,45 @@ class MonitorOut(BaseModel):
         description='Resultado da última checagem. null: ainda não checado.',
     )
     last_checked_at: datetime | None
+
+
+class CheckOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    checked_at: datetime
+    is_up: bool
+    status_code: int | None
+    response_time_ms: int | None
+    error: str | None
+
+
+class CheckPage(BaseModel):
+    items: list[CheckOut]
+    next_before: datetime | None = Field(
+        description=(
+            'Para a próxima página, envie este valor em `before`. '
+            'null: não há mais checagens.'
+        ),
+    )
+
+
+Period = Literal['24h', '7d', '30d']
+
+
+class MonitorStats(BaseModel):
+    period: Period
+    since: datetime = Field(description='Início do período.')
+    checks: int
+    up_checks: int
+    uptime_percent: float | None = Field(
+        description='Porcentagem de checagens no ar. null: sem checagens.',
+    )
+    avg_response_ms: int | None = Field(
+        description='Tempo médio das checagens no ar.',
+    )
+    incidents: int = Field(
+        description='Quantas vezes o site caiu no período.',
+    )
 
 
 class UserCreate(BaseModel):

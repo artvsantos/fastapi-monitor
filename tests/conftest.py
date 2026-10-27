@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import httpx
 import pytest
 from pwdlib import PasswordHash
@@ -5,8 +7,9 @@ from pwdlib.hashers.argon2 import Argon2Hasher
 
 from app import security
 from app.config import Settings
-from app.database import Base
+from app.database import Base, utc_now
 from app.main import create_app
+from app.models import Check
 from app.url_safety import UnsafeURLError
 
 EMAIL = 'ana@exemplo.com'
@@ -91,3 +94,47 @@ async def token(client, user):
 @pytest.fixture
 def auth_headers(token):
     return {'Authorization': f'Bearer {token}'}
+
+
+@pytest.fixture
+async def other_headers(client):
+    """Login de outra pessoa, para testar o acesso ao que não é dela."""
+    login = {'username': 'bruno@exemplo.com', 'password': 'outra-senha-123'}
+    await client.post('/auth/register', json={
+        'email': login['username'], 'password': login['password'],
+    })
+    token = (await client.post('/auth/token', data=login)).json()
+    return {'Authorization': f"Bearer {token['access_token']}"}
+
+
+@pytest.fixture
+async def monitor(client, auth_headers):
+    response = await client.post('/monitors', json={
+        'name': 'Meu site', 'url': 'https://exemplo.com.br/',
+        'interval_minutes': 5,
+    }, headers=auth_headers)
+    return response.json()
+
+
+@pytest.fixture
+def add_checks(session):
+    """Grava checagens direto no banco: (minutos atrás, no ar?, ms)."""
+
+    async def add(monitor_id, *checks, now=None):
+        now = now or utc_now()
+        rows = [
+            Check(
+                monitor_id=monitor_id,
+                checked_at=now - timedelta(minutes=minutes_ago),
+                is_up=is_up,
+                status_code=200 if is_up else 503,
+                response_time_ms=ms,
+                error=None if is_up else 'O site respondeu com o código 503.',
+            )
+            for minutes_ago, is_up, ms in checks
+        ]
+        session.add_all(rows)
+        await session.commit()
+        return rows
+
+    return add

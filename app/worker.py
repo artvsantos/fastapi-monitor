@@ -7,10 +7,11 @@ pega os que estão com next_check_at vencido.
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import datetime, timedelta
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.checker import CheckResult, check_url, make_check_client
@@ -108,15 +109,44 @@ async def run_once(
     return len(due)
 
 
+CLEANUP_EVERY = timedelta(hours=1)
+
+
+async def delete_old_checks(
+    sessionmaker: Sessionmaker, settings: Settings, *, now: datetime,
+) -> int:
+    """Apaga o histórico mais velho que check_retention_days.
+
+    Sem isso a tabela cresceria para sempre: um site checado de minuto em
+    minuto gera 1.440 linhas por dia.
+    """
+    cutoff = now - timedelta(days=settings.check_retention_days)
+    async with sessionmaker() as session:
+        result = await session.execute(
+            delete(Check).where(Check.checked_at < cutoff),
+        )
+        await session.commit()
+    return result.rowcount
+
+
 async def run_forever(
     sessionmaker: Sessionmaker,
     client: httpx.AsyncClient,
     settings: Settings,
     stop: asyncio.Event,
+    *,
+    clock: Callable[[], datetime] = utc_now,
 ) -> None:
+    last_cleanup = None
     while not stop.is_set():
+        now = clock()
         try:
             await run_once(sessionmaker, client, settings)
+            # A limpeza não precisa ser a cada rodada; uma vez por hora
+            # basta (e a primeira logo ao ligar).
+            if last_cleanup is None or now - last_cleanup >= CLEANUP_EVERY:
+                await delete_old_checks(sessionmaker, settings, now=now)
+                last_cleanup = now
         except Exception:
             # Banco fora do ar, por exemplo: tenta de novo na próxima.
             logger.exception('Falha na rodada do worker')

@@ -1,14 +1,25 @@
+import math
+from datetime import timedelta
+from typing import Annotated
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, HTTPException, Response, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, HTTPException, Query, Response, status
+from pydantic import AwareDatetime
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.database import SessionDep, utc_now
 from app.dependencies import CurrentUser, ResolverDep, SettingsDep
 from app.errors import field_error
-from app.models import Monitor
-from app.schemas import MonitorCreate, MonitorOut, MonitorUpdate
+from app.models import Check, Monitor
+from app.schemas import (
+    CheckPage,
+    MonitorCreate,
+    MonitorOut,
+    MonitorStats,
+    MonitorUpdate,
+    Period,
+)
 from app.url_safety import UnsafeURLError, ensure_public_host
 
 router = APIRouter(prefix='/monitors', tags=['Monitores'])
@@ -152,3 +163,105 @@ async def delete_monitor(
     await session.delete(monitor)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    '/{monitor_id}/checks',
+    response_model=CheckPage,
+    summary='Histórico de checagens',
+    description=(
+        'Das mais novas para as mais antigas. Para a próxima página, envie '
+        'em `before` o `next_before` da resposta.'
+    ),
+    responses=NOT_FOUND,
+)
+async def list_checks(
+    monitor_id: int,
+    session: SessionDep,
+    user: CurrentUser,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    before: Annotated[
+        AwareDatetime | None,
+        Query(description='Só checagens anteriores a esta data e hora.'),
+    ] = None,
+):
+    await get_own_monitor(session, user, monitor_id)
+
+    query = select(Check).where(Check.monitor_id == monitor_id)
+    if before is not None:
+        query = query.where(Check.checked_at < before)
+    # Um a mais que o pedido: se vier, existe próxima página. O índice
+    # (monitor_id, checked_at) deixa isso rápido em qualquer página, ao
+    # contrário de OFFSET, que lê e descarta tudo o que vem antes.
+    rows = (await session.scalars(
+        query.order_by(Check.checked_at.desc()).limit(limit + 1),
+    )).all()
+
+    items = rows[:limit]
+    has_more = len(rows) > limit
+    return CheckPage(
+        items=items,
+        next_before=items[-1].checked_at if has_more else None,
+    )
+
+
+PERIODS = {
+    '24h': timedelta(hours=24),
+    '7d': timedelta(days=7),
+    '30d': timedelta(days=30),
+}
+
+
+@router.get(
+    '/{monitor_id}/stats',
+    response_model=MonitorStats,
+    summary='Tempo no ar e tempo de resposta',
+    responses=NOT_FOUND,
+)
+async def monitor_stats(
+    monitor_id: int,
+    session: SessionDep,
+    user: CurrentUser,
+    period: Period = '24h',
+):
+    await get_own_monitor(session, user, monitor_id)
+    since = utc_now() - PERIODS[period]
+    in_period = (Check.monitor_id == monitor_id, Check.checked_at >= since)
+
+    # Tudo calculado pelo banco, numa consulta só, em vez de trazer
+    # milhares de checagens para contar em Python.
+    total, up, avg_ms = (await session.execute(
+        select(
+            func.count(),
+            func.coalesce(func.sum(case((Check.is_up, 1), else_=0)), 0),
+            # Sem "else", a checagem fora do ar vira NULL, e o AVG ignora.
+            func.avg(case((Check.is_up, Check.response_time_ms))),
+        ).where(*in_period),
+    )).one()
+
+    # Queda = checagem fora do ar cuja anterior estava no ar (ou que abre
+    # o período). LAG pega o valor da linha anterior, na ordem do tempo.
+    previous = func.lag(Check.is_up).over(order_by=Check.checked_at)
+    timeline = select(
+        Check.is_up.label('is_up'), previous.label('previous'),
+    ).where(*in_period).subquery()
+    incidents = await session.scalar(
+        select(func.count()).select_from(timeline).where(
+            ~timeline.c.is_up,
+            or_(timeline.c.previous.is_(None), timeline.c.previous),
+        ),
+    )
+
+    return MonitorStats(
+        period=period,
+        since=since,
+        checks=total,
+        up_checks=up,
+        uptime_percent=round(up * 100 / total, 2) if total else None,
+        # floor(x + 0,5): arredondamento "de escola". O round() do Python
+        # arredonda 100,5 para 100 (para o par mais próximo).
+        avg_response_ms=(
+            math.floor(float(avg_ms) + 0.5) if avg_ms is not None else None
+        ),
+        incidents=incidents,
+    )

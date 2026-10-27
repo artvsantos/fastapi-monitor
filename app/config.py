@@ -25,3 +25,5 @@ class Settings(BaseSettings):
     worker_batch_size: int = 50          # monitores por rodada
     worker_concurrency: int = 10         # checagens ao mesmo tempo
     check_timeout: float = 10            # segundos por checagem
+    # Checagens mais velhas que isso são apagadas (uma vez por hora).
+    check_retention_days: int = 30

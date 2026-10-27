@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import Depends, Request
-from sqlalchemy import DateTime, MetaData, TypeDecorator
+from sqlalchemy import DateTime, MetaData, TypeDecorator, event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -36,6 +36,14 @@ class UTCDateTime(TypeDecorator):
     impl = DateTime(timezone=True)
     cache_ok = True
 
+    def process_bind_param(self, value, dialect):
+        # O SQLite guarda a data como texto e joga o fuso fora: 09:00-03:00
+        # viraria 09:00, três horas errado. Convertido para UTC antes, a
+        # comparação com as datas salvas fica certa.
+        if value is not None and value.tzinfo is not None:
+            return value.astimezone(UTC)
+        return value
+
     def process_result_value(self, value, dialect):
         if value is not None and value.tzinfo is None:
             return value.replace(tzinfo=UTC)
@@ -50,11 +58,23 @@ def make_engine(url: str) -> AsyncEngine:
     if url in ('sqlite+aiosqlite://', 'sqlite+aiosqlite:///:memory:'):
         # Banco em memória some quando a conexão fecha; com StaticPool
         # todas as sessões usam a mesma conexão e enxergam as tabelas.
-        return create_async_engine(
+        engine = create_async_engine(
             url, poolclass=StaticPool,
             connect_args={'check_same_thread': False},
         )
-    return create_async_engine(url, pool_pre_ping=True)
+    else:
+        engine = create_async_engine(url, pool_pre_ping=True)
+    if engine.dialect.name == 'sqlite':
+        event.listen(engine.sync_engine, 'connect', _enable_foreign_keys)
+    return engine
+
+
+def _enable_foreign_keys(connection, record) -> None:
+    # O SQLite só respeita as chaves estrangeiras (e o "apagar em cascata")
+    # se pedir, conexão por conexão. O Postgres faz sempre.
+    cursor = connection.cursor()
+    cursor.execute('PRAGMA foreign_keys=ON')
+    cursor.close()
 
 
 def make_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

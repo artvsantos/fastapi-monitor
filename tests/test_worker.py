@@ -330,3 +330,61 @@ async def test_main_wires_settings_database_and_safe_client(
     assert received['client'].is_closed
     assert not received['client'].trust_env
     assert isinstance(received['stop'], asyncio.Event)
+
+
+# --- limpeza do histórico ---------------------------------------------------
+
+async def test_cleanup_deletes_checks_older_than_the_retention(
+    app, make_monitor, session,
+):
+    app.state.settings.check_retention_days = 30
+    monitor = await make_monitor()
+    session.add_all([
+        Check(monitor_id=monitor.id, is_up=True,
+              checked_at=NOW - timedelta(days=30, minutes=1)),
+        Check(monitor_id=monitor.id, is_up=True,
+              checked_at=NOW - timedelta(days=29, hours=23)),
+    ])
+    await session.commit()
+
+    deleted = await worker.delete_old_checks(
+        app.state.sessionmaker, app.state.settings, now=NOW,
+    )
+
+    [kept] = await checks_of(app, monitor)
+    assert deleted == 1
+    assert kept.checked_at == NOW - timedelta(days=29, hours=23)
+
+
+async def test_loop_cleans_up_once_per_hour(app, monkeypatch):
+    stop = asyncio.Event()
+    moments = iter([
+        NOW, NOW + timedelta(minutes=30), NOW + timedelta(minutes=61),
+        NOW + timedelta(minutes=90),
+    ])
+    rounds = []
+    cleanups = []
+
+    async def fake_run_once(sessionmaker, client, settings):
+        rounds.append(1)
+        if len(rounds) == 4:
+            stop.set()
+        return 0
+
+    async def fake_cleanup(sessionmaker, settings, *, now):
+        cleanups.append(now)
+        return 0
+
+    monkeypatch.setattr(worker, 'run_once', fake_run_once)
+    monkeypatch.setattr(worker, 'delete_old_checks', fake_cleanup)
+    app.state.settings.worker_interval_seconds = 0
+
+    await asyncio.wait_for(
+        worker.run_forever(
+            app.state.sessionmaker, None, app.state.settings, stop,
+            clock=lambda: next(moments),
+        ),
+        timeout=2,
+    )
+
+    assert cleanups == [NOW, NOW + timedelta(minutes=61)]
