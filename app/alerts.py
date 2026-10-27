@@ -14,6 +14,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from urllib.parse import urlsplit
 
 import httpx
 from sqlalchemy import exists, select
@@ -229,8 +230,10 @@ async def send_due_alerts(
                 )
             except Exception:
                 # Fica reservado e volta para a fila depois do DELIVERY_LEASE.
-                logger.exception('Falha ao enviar o aviso %s (%s)',
-                                 delivery.alert_id, delivery.url)
+                # Só o domínio: o resto do endereço pode ter um token.
+                logger.exception('Falha ao enviar o aviso %s (para %s)',
+                                 delivery.alert_id,
+                                 urlsplit(delivery.url).hostname)
 
     await asyncio.gather(*(deliver(delivery) for delivery in deliveries))
     return len(deliveries)

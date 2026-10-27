@@ -6,7 +6,10 @@ endereço é conferido de novo a cada conexão, e a conexão vai para o IP
 conferido, sem uma segunda consulta ao DNS que poderia dar outra resposta.
 """
 
+import logging
+
 import httpcore
+import httpx
 import pytest
 
 from app.checker import PublicOnlyBackend, check_url, make_check_client
@@ -168,3 +171,22 @@ async def test_pauses_are_left_to_the_real_network_layer():
     await PublicOnlyBackend(inner=Inner()).sleep(0.5)
 
     assert slept == [0.5]
+
+
+async def test_request_addresses_are_not_logged(caplog):
+    # O httpx anota cada requisição no log com o endereço completo, e o
+    # endereço de um webhook (Discord, Slack...) leva um token de acesso.
+    httpx_logger = logging.getLogger('httpx')
+    original_level = httpx_logger.level
+    try:
+        async with make_check_client():
+            pass
+        with caplog.at_level(logging.INFO):
+            async with httpx.AsyncClient(transport=httpx.MockTransport(
+                lambda request: httpx.Response(200),
+            )) as client:
+                await client.post('https://hooks.com/webhooks/1/token-secreto')
+    finally:
+        httpx_logger.setLevel(original_level)
+
+    assert 'token-secreto' not in caplog.text

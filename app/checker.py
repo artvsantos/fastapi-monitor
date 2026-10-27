@@ -1,3 +1,4 @@
+import logging
 import ssl
 import time
 from collections.abc import Callable
@@ -134,6 +135,10 @@ def make_check_client(
     backend: httpcore.AsyncNetworkBackend | None = None,
 ) -> httpx.AsyncClient:
     """Cliente HTTP do worker, com o filtro de endereços ligado."""
+    # O httpx anota no log cada requisição com o endereço completo. O de um
+    # webhook (Discord, Slack...) leva um token de acesso no caminho, que
+    # ficaria visível para quem lê o log do servidor.
+    logging.getLogger('httpx').setLevel(logging.WARNING)
     transport = httpx.AsyncHTTPTransport(verify=_ssl_context())
     # O httpx não aceita trocar a camada de rede pelo construtor, então o
     # pool de conexões é refeito com ela. O teste

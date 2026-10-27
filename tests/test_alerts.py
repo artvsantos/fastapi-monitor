@@ -410,8 +410,11 @@ async def test_sends_in_parallel_up_to_the_limit(app, make_monitor):
 async def test_bug_in_one_delivery_does_not_stop_the_others(
     app, make_monitor, caplog,
 ):
-    await make_monitor('https://a.com/', is_up=True,
-                       webhook_url='https://quebrado.com/')
+    # Como os do Discord e do Slack: o token de acesso fica no caminho.
+    await make_monitor(
+        'https://a.com/', is_up=True,
+        webhook_url='https://quebrado.com/api/webhooks/123/token-secreto',
+    )
     await make_monitor('https://b.com/', is_up=True, webhook_url=HOOK)
     await check_round(app, 503)
 
@@ -427,6 +430,10 @@ async def test_bug_in_one_delivery_does_not_stop_the_others(
     statuses = sorted(a.status for a in await alerts_of(app))
     assert statuses == ['pending', 'sent']
     assert 'bug inesperado' in caplog.text
+    # O log diz para onde ia, mas sem o token: quem lê o log do servidor
+    # não ganha acesso ao canal de quem cadastrou.
+    assert 'quebrado.com' in caplog.text
+    assert 'token-secreto' not in caplog.text
 
 
 async def test_deleting_the_monitor_deletes_its_alerts(
