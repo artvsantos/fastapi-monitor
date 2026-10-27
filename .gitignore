@@ -7,3 +7,4 @@ htmlcov/
 .env
 *.db
 CLAUDE.md
+saida-*.log

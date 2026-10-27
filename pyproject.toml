@@ -12,6 +12,10 @@ asyncio_default_fixture_loop_scope = "function"
 [tool.coverage.run]
 source = ["app"]
 branch = true
+# O SQLAlchemy async roda o código em greenlets, e o aiosqlite numa thread.
+# Sem isso, no Python 3.13 (que mede de outro jeito que o 3.14) a
+# cobertura perde tudo o que roda depois de uma consulta ao banco.
+concurrency = ["greenlet", "thread"]
 
 [tool.coverage.report]
 show_missing = true

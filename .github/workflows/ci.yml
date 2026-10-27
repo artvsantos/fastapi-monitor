@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+defaults:
+  run:
+    # Com pipefail, "pytest | tee" falha quando o pytest falha.
+    shell: bash
+
 env:
   # Só para o CI (o banco é descartado no fim). Não é segredo de produção.
   SECRET_KEY: chave-do-ci-so-para-os-testes-com-mais-de-32-caracteres
@@ -43,21 +48,34 @@ jobs:
         run: ruff check .
 
       - name: Testes no SQLite, com cobertura
-        run: pytest --cov
+        run: pytest --cov 2>&1 | tee saida-sqlite.log
 
       - name: Testes no Postgres
         env:
           TEST_DATABASE_URL: ${{ env.POSTGRES_URL }}
-        run: pytest
+        run: pytest 2>&1 | tee saida-postgres.log
 
       - name: Migrações no Postgres (subir, conferir e desfazer)
         env:
           DATABASE_URL: ${{ env.POSTGRES_URL }}
         run: |
-          alembic upgrade head
-          alembic check
-          alembic downgrade base
-          alembic upgrade head
+          {
+            alembic upgrade head
+            alembic check
+            alembic downgrade base
+            alembic upgrade head
+          } 2>&1 | tee saida-migracoes.log
+
+      # O log completo só aparece para quem está logado no GitHub; o fim
+      # dele vira uma anotação, que aparece no resumo da execução.
+      - name: Resumo do erro
+        if: failure()
+        run: |
+          for log in saida-*.log; do
+            [ -f "$log" ] || continue
+            mensagem=$(tail -n 40 "$log" | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=$log::$mensagem"
+          done
 
   docker:
     name: Imagem Docker e docker-compose
@@ -76,7 +94,10 @@ jobs:
 
       - name: Logs (se algo falhar)
         if: failure()
-        run: docker compose logs
+        run: |
+          docker compose logs
+          mensagem=$(docker compose logs --tail 15 2>&1 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+          echo "::error title=docker compose::$mensagem"
 
       - name: Desligar
         if: always()
